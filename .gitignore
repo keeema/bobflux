@@ -1,2 +1,6 @@
-dist
 node_modules
+build
+/examples/**/*.js
+/.vscode
+/spec/**/*.d.ts
+/spec/**/*.js

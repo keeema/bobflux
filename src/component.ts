@@ -1,27 +1,53 @@
-import * as b from 'node_modules/bobril/index';
-import { ICursor } from './cursor';
-import { IState } from './state';
-import { getState } from './store';
+import * as b from "bobril";
+import * as f from "fun-model";
+import * as c from "./common";
 
-export interface IContext<TState extends IState> extends b.IBobrilCtx {
-    state: TState;
+export interface IComponentState extends f.IState {
 }
 
-export function createComponent<TState extends IState, TData>(component: b.IBobrilComponent)
-    : (cursor: ICursor<TState>, data: TData, children?: b.IBobrilChildren) => b.IBobrilNode {
-    return (c: ICursor<TState>, d: TData, ch?: b.IBobrilChildren) => b.createDerivedComponent<TData>(
-        b.createComponent({
-            init(ctx: IContext<IState>) {
-                ctx.state = getState(c);
-            },
-            shouldChange(ctx: IContext<IState>, me: b.IBobrilNode, oldMe: b.IBobrilCacheNode): boolean {
-                let currentState = getState(c);
-                if (currentState === ctx.state)
-                    return false;
+export interface IContext<TState extends IComponentState> extends b.IBobrilCtx {
+    state: TState;
+    cursor: f.ICursor<TState>;
+    forceShouldChange: boolean;
+}
 
-                ctx.state = currentState;
-                return true;
+export interface IComponentFactory {
+    (children?: b.IBobrilChildren): b.IBobrilNode;
+}
+
+export function createComponent<TState extends IComponentState>(component: b.IBobrilComponent)
+    : (cursor: f.ICursor<TState> | c.CursorFieldsMap<TState>) => IComponentFactory {
+    return (innerCursor: f.ICursor<TState> | c.CursorFieldsMap<TState>) => (children?: b.IBobrilChildren) => b.createDerivedComponent(
+        b.createVirtualComponent({
+            init(ctx: IContext<TState>) {
+                if (c.isCursor(innerCursor)) {
+                    ctx.cursor = innerCursor;
+                    ctx.state = f.getState(ctx.cursor);
+                }
+                else {
+                    Object.keys(innerCursor).forEach(ck => {
+                        ctx[c.unifyCursorName(ck)] = innerCursor[ck];
+                        ctx[c.unifyStateName(ck)] = f.getState(innerCursor[ck]);
+                    });
+                }
+            },
+            shouldChange(ctx: IContext<TState>, me: b.IBobrilNode, oldMe: b.IBobrilCacheNode): boolean {
+                if (c.isCursor(innerCursor)) {
+                    const previousState = ctx.state;
+                    ctx.state = f.getState(ctx.cursor);
+                    return ctx.forceShouldChange || ctx.state !== previousState;
+                }
+                else {
+                    let shouldChange = false;
+                    Object.keys(innerCursor).forEach(ck => {
+                        const stateName = c.unifyStateName(ck);
+                        const previousState = ctx[stateName];
+                        ctx[stateName] = f.getState(innerCursor[ck]);
+                        shouldChange = shouldChange || ctx.forceShouldChange || ctx[stateName] !== previousState;
+                    });
+                    return shouldChange;
+                }
             }
         }),
-        component)(d, ch);
+        component)(null, children);
 }
